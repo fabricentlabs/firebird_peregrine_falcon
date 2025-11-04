@@ -1,4 +1,4 @@
-# Firebird Peregrine Falcon 🚀
+# Firebird Peregrine Falcon 🕊️
 
 Ultra-fast Firebird to Parquet extractor with all high-impact optimizations.
 
