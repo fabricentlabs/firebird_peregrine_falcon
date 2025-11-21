@@ -1,9 +1,11 @@
 # Run firebird_peregrine_falcon to extract agile_log_obrigacao
 # This can run in parallel with stone_as_fast (extracting obrigacao_gcl_setor)
 
-$database = "D:\Clients\Legnet\SISLEG_RESTORED.FDB"
-$outDir = "D:\Clients\Legnet\powerleg\data-sat"
-$table = "AGILE_LOG_OBRIGACAO"
+param(
+    [string]$database,
+    [string]$outDir,
+    [string]$table
+)
 
 Write-Host "=== FIREBIRD PEREGRINE FALCON ===" -ForegroundColor Cyan
 Write-Host "Extracting: $table" -ForegroundColor White
