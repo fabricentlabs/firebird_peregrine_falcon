@@ -42,8 +42,26 @@ def run_ps1_from_github(database: str, outDir: str, table: str) -> None:
 @flow(name="Get data from firebird", log_prints=True)
 def load_data_from_firebird(database: str, outDir: str, tables: list[str]) -> None:
     
+    results = {}
+    
+    # ✅ IMPORTANTE: NÃO ter return aqui!
     for table in tables:
-        return run_ps1_from_github(database=database, outDir=outDir, table=table)
+        print(f"\n=== Processando: {table} ===")
+        try:
+            output = run_ps1_from_github(database, outDir, table)
+            results[table] = {"status": "success", "output": output}
+            print(f"✅ {table} extraído com sucesso!")
+        except Exception as e:
+            results[table] = {"status": "error", "error": str(e)}
+            print(f"❌ Erro ao processar {table}: {e}")
+    
+    # Return DEPOIS do loop, não dentro
+    print(f"\n=== Resumo Final ===")
+    for table, result in results.items():
+        status = result["status"]
+        print(f"{table}: {status}")
+    
+    return results
 
 
 if __name__ == "__main__":
