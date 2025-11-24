@@ -13,18 +13,15 @@ Write-Host "Database: $database" -ForegroundColor Gray
 Write-Host "Output: $outDir" -ForegroundColor Gray
 Write-Host ""
 
-# Build if needed
-if (-not (Test-Path ".\target\release\firebird_peregrine_falcon.exe")) {
-    Write-Host "Building release version..." -ForegroundColor Yellow
-    cargo build --release
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Build failed!" -ForegroundColor Red
-        exit 1
-    }
+# Verificar se executável existe
+$exePath = ".\target\release\firebird_peregrine_falcon.exe"
+if (-not (Test-Path $exePath)) {
+    Write-Host "Erro: Executável não encontrado em $exePath" -ForegroundColor Red
+    exit 1
 }
 
 # Run extraction
-.\target\release\firebird_peregrine_falcon.exe `
+& $exePath `
     --database $database `
     --out-dir $outDir `
     --table $table `
@@ -35,5 +32,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "`n✅ Extraction completed successfully!" -ForegroundColor Green
 } else {
     Write-Host "`n❌ Extraction failed!" -ForegroundColor Red
+    exit 1
 }
 
