@@ -21,7 +21,10 @@ def run_ps1_from_github(database: str, outDir: str, table: str) -> None:
         [
             "powershell.exe",
             "-ExecutionPolicy", "Bypass",
-            "-File", str(ps1_file)
+            "-File", str(ps1_file),
+            "-database", database,      # ← lowercase
+            "-outDir", outDir,          # ← lowercase
+            "-table", table             # ← lowercase
         ],
         capture_output=True,
         text=True,
