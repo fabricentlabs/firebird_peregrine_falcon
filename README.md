@@ -75,9 +75,33 @@ cargo build --release
 ## Platform Compatibility
 
 - ✅ Windows (tested)
-- ✅ Linux (compatible)
+- ✅ Linux/Ubuntu (compatible)
 - Uses cross-platform Rust standard library
 - No platform-specific code
+
+## Deployment Options
+
+This project supports multiple deployment methods:
+
+1. **PowerShell Script** (Windows) - `run_agile_log_obrigacao.ps1`
+2. **Bash Script** (Ubuntu/Linux) - `run_agile_log_obrigacao.sh`
+3. **Prefect Flow** (Cross-platform) - `extract_agile_log_obrigacao.py`
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+### Quick Start with Prefect (Ubuntu)
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export FIREBIRD_DATABASE="/path/to/database.fdb"
+export FIREBIRD_OUT_DIR="/data/output"
+
+# Run extraction
+python extract_agile_log_obrigacao.py
+```
 
 ## Notes
 
