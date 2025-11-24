@@ -44,8 +44,4 @@ def load_data_from_firebird(database: str, outDir: str, tables: list[str]) -> No
 
 
 if __name__ == "__main__":
-    load_data_from_firebird(
-        database='C:\\consumer\\CONSUMER.FDB',
-        outDir='C:\\PARA\\1Projects\\Fabricent_Legnet\\data',
-        tables=['ITENSPEDIDO', 'PEDIDOS', 'PRODUTODETALHE']
-    )
+    load_data_from_firebird()
