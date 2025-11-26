@@ -27,4 +27,5 @@ desktop.ini
 # Environment
 .env
 .env.local
+.venv
 
