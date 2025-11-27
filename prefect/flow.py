@@ -17,7 +17,7 @@ def run_sh_from_github(host: str, database: str, outDir: str, table: str) -> str
         raise FileNotFoundError(f"Arquivo não encontrado: {sh_file}")
     
     print(f"Executando: {sh_file}")
-    print(f"Database: {database}, OutDir: {outDir}, Table: {table}")
+    print(f"Host:{host}, Database: {database}, OutDir: {outDir}, Table: {table}")
     
     # Executar script bash com parâmetros
     result = subprocess.run(
