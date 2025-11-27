@@ -219,7 +219,7 @@ impl Extractor {
             SELECT ri.rdb$index_name
             FROM rdb$indices ri
             WHERE ri.rdb$relation_name = ? 
-            AND ri.rdb$index_type = 1
+            AND ri.rdb$index_type IN (0, 1)
         "#;
         
         let indices: Vec<(String,)> = pool.query(sql, (table.to_uppercase(),))?;
@@ -248,9 +248,10 @@ impl Extractor {
 
         // Check if all PK columns are numeric (INTEGER/BIGINT)
         let type_sql = r#"
-            SELECT rdb$field_type
-            FROM rdb$relation_fields
-            WHERE rdb$relation_name = ? AND rdb$field_name = ?
+            SELECT f.rdb$field_type
+            FROM rdb$fields f
+            JOIN rdb$relation_fields rf ON f.rdb$field_name = rf.rdb$field_source
+            WHERE rf.rdb$relation_name = ? AND rf.rdb$field_name = ?
         "#;
         
         let mut all_numeric = true;
@@ -326,8 +327,8 @@ impl Extractor {
         
         for (field_name,) in field_names {
             let col_name = field_name.trim().to_string();
-            let types: Vec<(i16, i16)> = pool.query(type_sql, (table.to_uppercase(), col_name.to_uppercase()))?;
-            let (fb_type, subtype) = types.first().map(|t| (t.0, t.1)).unwrap_or((37, 0)); // Default to VARCHAR
+            let types: Vec<(i16, Option<i16>)> = pool.query(type_sql, (table.to_uppercase(), col_name.to_uppercase()))?;
+            let (fb_type, subtype) = types.first().map(|t| (t.0, t.1.unwrap_or(0))).unwrap_or((37, 0)); // Default to VARCHAR
             
             let (data_type, is_text_blob) = fb_to_arrow_type(fb_type, subtype);
             columns.push(ColumnMetadata {
