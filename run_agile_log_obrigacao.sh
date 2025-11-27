@@ -30,6 +30,7 @@ echo ""
 if [ -z "$host" ]; then
     echo "O host será localhost"
     exit 1
+fi
 
 if [ -z "$database" ]; then
     echo "Erro: database não pode estar vazio!"
