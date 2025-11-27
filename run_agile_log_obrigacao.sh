@@ -10,21 +10,27 @@ if [ $# -lt 3 ]; then
     exit 1
 fi
 
-database="$1"
-outDir="$2"
-table="$3"
+host="$1"
+database="$2"
+outDir="$3"
+table="$4"
 
 echo "=== FIREBIRD PEREGRINE FALCON ==="
 echo ""
 
 # DEBUG: Verificar valores recebidos
 echo "DEBUG - Valores recebidos:"
+echo "  host: '$host'"
 echo "  database: '$database'"
 echo "  outDir: '$outDir'"
 echo "  table: '$table'"
 echo ""
 
 # Validar se parâmetros não estão vazios
+if [ -z "$host" ]; then
+    echo "O host será localhost"
+    exit 1
+
 if [ -z "$database" ]; then
     echo "Erro: database não pode estar vazio!"
     exit 1
@@ -40,6 +46,7 @@ if [ -z "$table" ]; then
     exit 1
 fi
 
+echo "Host: $host"
 echo "Extracting: $table"
 echo "Database: $database"
 echo "Output: $outDir"
@@ -54,11 +61,12 @@ fi
 
 # Run extraction com quoted parameters
 echo "Executando comando:"
-echo "$exe_path --database '$database' --out-dir '$outDir' --table '$table' --parallelism 40 --pool-size 80"
+echo "$exe_path --host '$host' --database '$database' --out-dir '$outDir' --table '$table' --parallelism 40 --pool-size 80"
 echo ""
 
 # Executar
 "$exe_path" \
+    --host "$host" \
     --database "$database" \
     --out-dir "$outDir" \
     --table "$table" \

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct ExtractorConfig {
+    pub host: String,
     pub database_path: String,
     pub out_dir: PathBuf,
     pub parallelism: usize,

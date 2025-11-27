@@ -6,6 +6,10 @@ use firebird_peregrine_falcon::ExtractorConfig;
 #[command(name = "firebird_peregrine_falcon")]
 #[command(about = "Ultra-fast Firebird to Parquet extractor with parallel partitioning")]
 struct Args {
+    /// Firebird host
+    #[arg(long, default_value = "localhost")]
+    host: String,
+
     /// Firebird database path
     #[arg(long)]
     database: String,
@@ -46,6 +50,7 @@ fn main() -> anyhow::Result<()> {
     let pool_size = args.pool_size.unwrap_or_else(|| parallelism * 2);
 
     println!("=== FIREBIRD PEREGRINE FALCON (ULTRA-FAST EXTRACTOR) ===");
+    println!("Host: {}", args.host);
     println!("Database: {}", args.database);
     println!("Output: {}", args.out_dir);
     println!("Table: {}", args.table);
@@ -55,6 +60,7 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     let config = ExtractorConfig {
+        host: args.host,
         database_path: args.database,
         out_dir: std::path::PathBuf::from(&args.out_dir),
         parallelism,

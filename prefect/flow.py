@@ -5,7 +5,7 @@ import subprocess
 
 
 @task
-def run_sh_from_github(database: str, outDir: str, table: str) -> str:
+def run_sh_from_github(host: str, database: str, outDir: str, table: str) -> str:
     """Executa script bash do repositório com parâmetros"""
     
     # Descobrir onde o script está
@@ -24,6 +24,7 @@ def run_sh_from_github(database: str, outDir: str, table: str) -> str:
         [
             "bash",
             str(sh_file),
+            host,
             database,
             outDir,
             table
@@ -47,6 +48,7 @@ def load_data_from_firebird() -> dict:
     
     """Flow principal que executa o script para cada tabela"""
     
+    host = Variable.get("host")
     database = Variable.get("firebird")
     outDir = Variable.get("outdir")
     tables_str = Variable.get("tables")
@@ -58,7 +60,7 @@ def load_data_from_firebird() -> dict:
     for table in tables:
         print(f"\n=== Processando: {table} ===")
         try:
-            output = run_sh_from_github(database, outDir, table)
+            output = run_sh_from_github(host, database, outDir, table)
             results[table] = {"status": "success", "output": output}
             print(f"✅ {table} extraído com sucesso!")
         except Exception as e:

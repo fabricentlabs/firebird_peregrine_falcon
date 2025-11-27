@@ -65,6 +65,7 @@ impl ConnectionPool {
 
     fn create_connection(config: &ExtractorConfig) -> Result<SimpleConnection> {
         let mut builder = rsfbclient::builder_native().with_dyn_link().with_remote();
+        builder.host(&config.host);
         builder.db_name(&config.database_path);
         builder.user(&config.user);
         builder.pass(&config.password);
