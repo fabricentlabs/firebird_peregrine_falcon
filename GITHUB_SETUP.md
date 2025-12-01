@@ -20,7 +20,10 @@ Your project has been initialized with Git and is ready to push to GitHub.
 After creating the repository, GitHub will show you commands. Use these:
 
 ```bash
-cd D:\Clients\Legnet\firebird_peregrine_falcon
+
+mkdir firebird_peregrine_falcon
+
+cd ... firebird_peregrine_falcon
 
 # Add remote (replace YOUR_USERNAME with your GitHub username)
 git remote add origin https://github.com/YOUR_USERNAME/firebird_peregrine_falcon.git
