@@ -46,7 +46,17 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let parallelism = args.parallelism.unwrap_or_else(|| num_cpus::get() * 2);
+    // Adaptive Parallelism Logic
+    let parallelism = if let Some(p) = args.parallelism {
+        p
+    } else {
+        let available_mem = get_memory_limit();
+        let safe_parallelism = calculate_safe_parallelism(available_mem);
+        println!("Detected memory limit: {:.2} GB", available_mem as f64 / 1024.0 / 1024.0 / 1024.0);
+        println!("Calculated safe parallelism: {} workers", safe_parallelism);
+        safe_parallelism
+    };
+
     let pool_size = args.pool_size.unwrap_or_else(|| parallelism * 2);
 
     println!("=== FIREBIRD PEREGRINE FALCON (ULTRA-FAST EXTRACTOR) ===");
@@ -83,3 +93,48 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+
+fn get_memory_limit() -> u64 {
+    // 1. Try Cgroup v2
+    if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/memory.max") {
+        if let Ok(bytes) = contents.trim().parse::<u64>() {
+            if bytes > 0 && bytes < u64::MAX {
+                return bytes;
+            }
+        }
+    }
+
+    // 2. Try Cgroup v1
+    if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/memory/memory.limit_in_bytes") {
+        if let Ok(bytes) = contents.trim().parse::<u64>() {
+            if bytes > 0 && bytes < u64::MAX {
+                return bytes;
+            }
+        }
+    }
+
+    // 3. Fallback to System Memory (sys-info)
+    if let Ok(mem) = sys_info::mem_info() {
+        return mem.total * 1024; // mem_info returns kB
+    }
+
+    // 4. Last resort fallback (assume 8GB)
+    8 * 1024 * 1024 * 1024
+}
+
+fn calculate_safe_parallelism(available_bytes: u64) -> usize {
+    // Reserve 20% for OS/Overhead
+    let usable_bytes = (available_bytes as f64 * 0.8) as u64;
+    
+    // Estimate per-worker usage
+    // Batch size (500k) * Row size (est 2KB to be safe) + Buffer overhead
+    let estimated_worker_memory = 500_000 * 2048; // ~1GB per worker
+    
+    let max_workers = (usable_bytes / estimated_worker_memory) as usize;
+    
+    // Clamp between 1 and 2x CPU cores (don't go too crazy even if RAM is huge)
+    let cpu_cores = num_cpus::get();
+    let max_cpu_workers = cpu_cores * 4; // Allow more IO bound workers
+    
+    max_workers.clamp(1, max_cpu_workers)
+}

@@ -575,19 +575,6 @@ fn extract_partition(
     let pk_col = &meta.pk.as_ref().unwrap().columns[0];
     let columns_sql: String = meta.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ");
 
-    // NO ORDER BY - maximum speed!
-    let query = format!(
-        "SELECT {} FROM {} WHERE {} >= {} AND {} <= {}",
-        columns_sql, meta.table_name, pk_col, start_pk, pk_col, end_pk
-    );
-
-    let rows: Vec<Row> = conn.query(&query, ())?;
-    let total_rows = rows.len();
-
-    if total_rows == 0 {
-        return Ok(PartitionResult { rows: 0 });
-    }
-
     // Write to temp file with writer thread
     let (batch_tx, batch_rx): (Sender<Option<RecordBatch>>, Receiver<Option<RecordBatch>>) = bounded(4);
     
@@ -614,12 +601,91 @@ fn extract_partition(
         Ok(())
     });
 
-    // Process in batches
-    for chunk in rows.chunks(batch_size) {
-        let batch = build_arrow_batch(&meta, chunk)?;
-        if batch_tx.send(Some(batch)).is_err() {
+    let mut total_rows = 0;
+    let mut current_pk = start_pk;
+    
+    // Chunked fetching loop to prevent OOM
+    // We iterate through the PK range in steps of 'batch_size' (approx)
+    // Since PKs might not be contiguous, we just use the PK range logic
+    // But to be safe against OOM, we need to ensure we don't fetch too many rows.
+    // The previous logic fetched the WHOLE range [start_pk, end_pk] at once.
+    // We will break this range into smaller sub-ranges.
+    
+    // Heuristic: Assume density is 1 (worst case for number of queries, best for memory).
+    // If density is low, we might do many empty queries, but that's better than OOM.
+    // Let's use a step size of batch_size * 2 to be aggressive but safe.
+    let step = batch_size as i64;
+    
+    while current_pk < end_pk {
+        let next_pk = (current_pk + step).min(end_pk);
+        
+        // Query just this sub-chunk
+        let query = format!(
+            "SELECT {} FROM {} WHERE {} >= {} AND {} < {}",
+            columns_sql, meta.table_name, pk_col, current_pk, pk_col, next_pk
+        );
+
+        let rows: Vec<Row> = conn.query(&query, ())?;
+        let chunk_rows = rows.len();
+        
+        if chunk_rows > 0 {
+            total_rows += chunk_rows;
+            let batch = build_arrow_batch(&meta, &rows)?;
+            if batch_tx.send(Some(batch)).is_err() {
+                break;
+            }
+        }
+        
+        current_pk = next_pk;
+    }
+    
+    // Handle the very last point (end_pk is inclusive in original logic?)
+    // Original: WHERE pk >= start AND pk <= end
+    // My loop:  WHERE pk >= current AND pk < next
+    // So I need to handle the case where pk == end_pk if the loop finishes
+    // Actually, let's just make the loop cover it.
+    // If I change the loop to be inclusive of end_pk in the last step.
+    
+    // Let's refine the loop strategy:
+    // We want to cover [start_pk, end_pk]
+    
+    // Reset and do it properly:
+    let mut current_start = start_pk;
+    while current_start <= end_pk {
+        let current_end = (current_start + step).min(end_pk);
+        
+        // Query: >= start AND <= end (if it's the last chunk) OR < end (if not)
+        // To be simple and correct, let's just use < current_end, except for the last chunk.
+        // But wait, if we use <= end_pk, we might overlap if we are not careful.
+        // Let's use half-open intervals [start, end) and handle the final inclusive bound separately or just extend the last interval.
+        
+        let query = if current_end == end_pk {
+             // Last chunk: include end_pk
+             format!(
+                "SELECT {} FROM {} WHERE {} >= {} AND {} <= {}",
+                columns_sql, meta.table_name, pk_col, current_start, pk_col, current_end
+            )
+        } else {
+            // Normal chunk: [start, end)
+            format!(
+                "SELECT {} FROM {} WHERE {} >= {} AND {} < {}",
+                columns_sql, meta.table_name, pk_col, current_start, pk_col, current_end
+            )
+        };
+
+        let rows: Vec<Row> = conn.query(&query, ())?;
+        if !rows.is_empty() {
+            total_rows += rows.len();
+            let batch = build_arrow_batch(&meta, &rows)?;
+            if batch_tx.send(Some(batch)).is_err() {
+                break;
+            }
+        }
+
+        if current_end == end_pk {
             break;
         }
+        current_start = current_end;
     }
 
     let _ = batch_tx.send(None);
