@@ -62,7 +62,7 @@ fi
 
 # Run extraction com quoted parameters
 echo "Executando comando:"
-echo "$exe_path --host '$host' --database '$database' --out-dir '$outDir' --table '$table' --parallelism 40 --pool-size 80"
+echo "$exe_path --host '$host' --database '$database' --out-dir '$outDir' --table '$table'"
 echo ""
 
 # Executar
@@ -70,9 +70,7 @@ echo ""
     --host "$host" \
     --database "$database" \
     --out-dir "$outDir" \
-    --table "$table" \
-    --parallelism 40 \
-    --pool-size 80
+    --table "$table"
 
 exit_code=$?
 

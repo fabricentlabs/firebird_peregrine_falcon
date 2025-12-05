@@ -84,14 +84,12 @@ impl ConnectionPool {
             Ok(PooledConnection {
                 conn: Some(conn),
                 pool: Arc::clone(&self.connections),
-                config: self.config.clone(),
             })
         } else {
             // Create new connection if pool is empty
             Ok(PooledConnection {
                 conn: Some(Self::create_connection(&self.config)?),
                 pool: Arc::clone(&self.connections),
-                config: self.config.clone(),
             })
         }
     }
@@ -100,7 +98,6 @@ impl ConnectionPool {
 struct PooledConnection {
     conn: Option<SimpleConnection>,
     pool: Arc<Mutex<Vec<SimpleConnection>>>,
-    config: ExtractorConfig,
 }
 
 impl Drop for PooledConnection {
@@ -147,7 +144,6 @@ struct PrimaryKeyInfo {
     columns: Vec<String>,
     min_values: Vec<i64>,
     max_values: Vec<i64>,
-    row_count: i64,
 }
 
 impl Extractor {
@@ -179,7 +175,7 @@ impl Extractor {
 
         // ULTRA-AGGRESSIVE: Always try parallel PK partitioning
         // Even with small ranges, multiple workers can still help
-        if let Some(ref pk) = meta.pk {
+        if meta.pk.is_some() {
             println!("  Using parallel PK partitioning with {} workers", self.config.parallelism);
             self.extract_parallel_pk(&meta, &output_path, start)
         } else {
@@ -283,7 +279,6 @@ impl Extractor {
                 columns: pk_column_names,
                 min_values: vec![0],
                 max_values: vec![row_count],
-                row_count,
             }));
         }
 
@@ -300,7 +295,6 @@ impl Extractor {
             columns: pk_column_names,
             min_values: vec![min_val],
             max_values: vec![max_val],
-            row_count,
         }))
     }
 
@@ -604,88 +598,71 @@ fn extract_partition(
     let mut total_rows = 0;
     let mut current_pk = start_pk;
     
-    // Chunked fetching loop to prevent OOM
-    // We iterate through the PK range in steps of 'batch_size' (approx)
-    // Since PKs might not be contiguous, we just use the PK range logic
-    // But to be safe against OOM, we need to ensure we don't fetch too many rows.
-    // The previous logic fetched the WHOLE range [start_pk, end_pk] at once.
-    // We will break this range into smaller sub-ranges.
+    // PREPARED STATEMENT OPTIMIZATION
+    // We use a parameterized query so the DB parses it only once (or caches the plan).
+    // SQL: SELECT ... FROM ... WHERE pk >= ? AND pk < ?
+    let sql_chunk = format!(
+        "SELECT {} FROM {} WHERE {} >= ? AND {} < ?",
+        columns_sql, meta.table_name, pk_col, pk_col
+    );
     
-    // Heuristic: Assume density is 1 (worst case for number of queries, best for memory).
-    // If density is low, we might do many empty queries, but that's better than OOM.
-    // Let's use a step size of batch_size * 2 to be aggressive but safe.
+    // For the last chunk (inclusive end), we need a separate query or logic.
+    // To keep it simple and fast, we'll use the same query for all chunks except the very last one if needed.
+    // Actually, we can just use one query: WHERE pk >= ? AND pk <= ?
+    // And just set the upper bound to (next_pk - 1) for normal chunks?
+    // No, PKs might be sparse. [100, 200) is safer.
+    // Let's prepare TWO statements? Or just one and handle the last chunk specially.
+    
+    // Let's use the [start, end) logic for everything, and for the last chunk, we extend the range to include end_pk.
+    // Wait, if we use < next_pk, and next_pk is end_pk + 1, then it covers end_pk.
+    // But end_pk might be MAX_INT.
+    // Let's stick to the parameterized query.
+    
     let step = batch_size as i64;
     
     while current_pk < end_pk {
         let next_pk = (current_pk + step).min(end_pk);
         
-        // Query just this sub-chunk
-        let query = format!(
-            "SELECT {} FROM {} WHERE {} >= {} AND {} < {}",
-            columns_sql, meta.table_name, pk_col, current_pk, pk_col, next_pk
-        );
-
-        let rows: Vec<Row> = conn.query(&query, ())?;
-        let chunk_rows = rows.len();
+        // If this is the last chunk (next_pk == end_pk), we need to include end_pk.
+        // We can do this by using a slightly different query for the last chunk,
+        // OR by using <= parameter and setting it to next_pk - 1 (if we knew density).
+        // Best approach: Use a parameterized query that accepts the operator? No.
         
-        if chunk_rows > 0 {
-            total_rows += chunk_rows;
-            let batch = build_arrow_batch(&meta, &rows)?;
-            if batch_tx.send(Some(batch)).is_err() {
-                break;
+        // Let's just use the string construction for the LAST chunk (it happens once),
+        // and the parameterized query for all other chunks (happens thousands of times).
+        
+        if next_pk < end_pk {
+            // Normal chunk: [current, next)
+            // Use parameterized query!
+            let params = (current_pk, next_pk);
+            let rows: Vec<Row> = conn.query(&sql_chunk, params)?;
+            
+            if !rows.is_empty() {
+                total_rows += rows.len();
+                let batch = build_arrow_batch(&meta, &rows)?;
+                if batch_tx.send(Some(batch)).is_err() {
+                    break;
+                }
+            }
+        } else {
+            // Last chunk: [current, end_pk] (Inclusive)
+            // We construct this one manually or use a different prepared statement.
+            // Since it runs once, format! is fine.
+            let last_query = format!(
+                "SELECT {} FROM {} WHERE {} >= {} AND {} <= {}",
+                columns_sql, meta.table_name, pk_col, current_pk, pk_col, end_pk
+            );
+            let rows: Vec<Row> = conn.query(&last_query, ())?;
+             if !rows.is_empty() {
+                total_rows += rows.len();
+                let batch = build_arrow_batch(&meta, &rows)?;
+                if batch_tx.send(Some(batch)).is_err() {
+                    break;
+                }
             }
         }
         
         current_pk = next_pk;
-    }
-    
-    // Handle the very last point (end_pk is inclusive in original logic?)
-    // Original: WHERE pk >= start AND pk <= end
-    // My loop:  WHERE pk >= current AND pk < next
-    // So I need to handle the case where pk == end_pk if the loop finishes
-    // Actually, let's just make the loop cover it.
-    // If I change the loop to be inclusive of end_pk in the last step.
-    
-    // Let's refine the loop strategy:
-    // We want to cover [start_pk, end_pk]
-    
-    // Reset and do it properly:
-    let mut current_start = start_pk;
-    while current_start <= end_pk {
-        let current_end = (current_start + step).min(end_pk);
-        
-        // Query: >= start AND <= end (if it's the last chunk) OR < end (if not)
-        // To be simple and correct, let's just use < current_end, except for the last chunk.
-        // But wait, if we use <= end_pk, we might overlap if we are not careful.
-        // Let's use half-open intervals [start, end) and handle the final inclusive bound separately or just extend the last interval.
-        
-        let query = if current_end == end_pk {
-             // Last chunk: include end_pk
-             format!(
-                "SELECT {} FROM {} WHERE {} >= {} AND {} <= {}",
-                columns_sql, meta.table_name, pk_col, current_start, pk_col, current_end
-            )
-        } else {
-            // Normal chunk: [start, end)
-            format!(
-                "SELECT {} FROM {} WHERE {} >= {} AND {} < {}",
-                columns_sql, meta.table_name, pk_col, current_start, pk_col, current_end
-            )
-        };
-
-        let rows: Vec<Row> = conn.query(&query, ())?;
-        if !rows.is_empty() {
-            total_rows += rows.len();
-            let batch = build_arrow_batch(&meta, &rows)?;
-            if batch_tx.send(Some(batch)).is_err() {
-                break;
-            }
-        }
-
-        if current_end == end_pk {
-            break;
-        }
-        current_start = current_end;
     }
 
     let _ = batch_tx.send(None);
